@@ -1,57 +1,58 @@
 import sched, time, datetime, os
 from datetime import timedelta
-import logging
-from logging.handlers import RotatingFileHandler
+import logger
 import requests
+import sys
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from bs4 import BeautifulSoup
 
 delay = 3
-token = open("token.txt").read()
 
-log_formatter = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s')
-        
-my_handler = RotatingFileHandler(filename='loggin.log', mode='a', maxBytes=5*1024*1024, 
-                                backupCount=2, encoding=None)
-my_handler.setFormatter(log_formatter)
-my_handler.setLevel(logging.INFO)
+def openTokenFile(name):
+    try:
+        f = open(name, 'r')
+        return f.read()
+    except IOError:
+        print ("Falha na leitura do arquivo token: ", name)
+        sys.exit()
 
-app_log = logging.getLogger('root')
-app_log.setLevel(logging.INFO)
-app_log.addHandler(my_handler)
-
+app_log = logger.defineLogger()
+token = str(openTokenFile('token.txt'))
 s = sched.scheduler(time.time, time.sleep)
 
 def main():
 
     pausado = getEstado()
     someone = getSomeoneWatching()
-    statuscode = 200
+    if (not(pausado) is None) or (not(someone) is None):
+        statuscode = 200
 
-    if someone == 0 and pausado == 1:
-        retorno = updateEstado(0)
-        statuscode = retorno.status_code
-        text = 'STARTED'
-        mode = 1
-    else:
-        if someone == 0 and pausado == 0:    
-            text = 'IDLE'
-            mode = 0
+        if someone == 0 and pausado == 1:
+            retorno = updateEstado(0)
+            statuscode = retorno.status_code
+            text = 'STARTED'
+            mode = 1
         else:
-            if someone > 0 and pausado == 0:
-                retorno = updateEstado(1)
-                statuscode = retorno.status_code
-                text = 'STOPPED'
-                mode = 1
-            else:
+            if someone == 0 and pausado == 0:    
                 text = 'IDLE'
                 mode = 0
-    
-    if statuscode == 200:
-        log(mode, pausado, text)
+            else:
+                if someone > 0 and pausado == 0:
+                    retorno = updateEstado(1)
+                    statuscode = retorno.status_code
+                    text = 'STOPPED'
+                    mode = 1
+                else:
+                    text = 'IDLE'
+                    mode = 0
+        
+        if statuscode == 200:
+            log(mode, pausado, text)
+        else:
+            log_error('Erro ao fazer o put: '+str(statuscode))
     else:
-        log_error('Erro ao fazer o put: '+str(statuscode))
+        log_error('Someone or paused return none ')    
 
 def log_error(e):
     app_log.error(e)
@@ -95,24 +96,26 @@ def tryCatchResponse(url):
 
 def getEstado():
     
-    response = tryCatchResponse('https://plex.cvnflix.com/transcode/sessions?X-Plex-Token='+token)
+    url = 'https://plex.cvnflix.com/transcode/sessions?X-Plex-Token='
+    response = tryCatchResponse(url+token)
     if response.status_code==200:
         soup = BeautifulSoup(response.text, 'xml')
         pause = int(soup.TranscodeSession['throttled'])
         return pause
     else:
-        log_error('Failed response')
+        log_error('Failed response from: '+url)
         
 
 def getSomeoneWatching():
 
-    response = tryCatchResponse('https://plex.cvnflix.com/status/sessions?X-Plex-Token='+token)
+    url = 'https://plex.cvnflix.com/status/sessions?X-Plex-Token='
+    response = tryCatchResponse(url+token)
     if response.status_code==200:
         soup = BeautifulSoup(response.text, features="xml")
         someone = int(soup.MediaContainer['size'])
         return someone
     else:
-        log_error('Failed response')
+        log_error('Failed response from: '+ url)
 
 def updateEstado(state):
 
@@ -122,10 +125,12 @@ def updateEstado(state):
         response = requests.put('https://plex.cvnflix.com/:/prefs?BackgroundQueueIdlePaused=0&X-Plex-Token='+token)
     return response
 
+
 def run_script(sc):
 
     main()
     s.enter(delay, 1, run_script, (sc,))
 
-s.enter(delay, 1, run_script, (s,))
-s.run()
+if __name__ == "__main__":
+    s.enter(delay, 1, run_script, (s,))
+    s.run()

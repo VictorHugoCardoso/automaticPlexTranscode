@@ -122,6 +122,7 @@ def updateEstado(state):
     url = 'https://plex.cvnflix.com/:/prefs?BackgroundQueueIdlePaused=' 
     return requests.put(url+str(state)+'&X-Plex-Token='+token)
 
+
 def run_script(sc):
 
     main()

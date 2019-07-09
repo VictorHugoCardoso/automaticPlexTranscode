@@ -1,77 +1,35 @@
-import sched, time, datetime, os
-from datetime import timedelta
+import sched
+import time
+import datetime
+import os
 import logger
 import requests
 import sys
+
+from datetime import timedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from bs4 import BeautifulSoup
 
-delay = 3
+DELAY = 3
+APP_LOG = logger.defineLogger()
+S = sched.scheduler(time.time, time.sleep)
 
-def openTokenFile(name):
-    try:
-        f = open(name, 'r')
-        return f.read()
-    except IOError:
-        print ("Falha na leitura do arquivo token: ", name)
-        sys.exit()
-
-app_log = logger.defineLogger()
-token = openTokenFile('token.txt')
-s = sched.scheduler(time.time, time.sleep)
-
-def main():
-
-    pausado = getEstado()
-    someone = getSomeoneWatching()
-    if (not(pausado) is None) or (not(someone) is None):
-        statuscode = 200
-
-        if someone == 0 and pausado == 1:
-            retorno = updateEstado(0)
-            statuscode = retorno.status_code
-            text = 'STARTED'
-            mode = 1
-        else:
-            if someone == 0 and pausado == 0:    
-                text = 'IDLE'
-                mode = 0
-            else:
-                if someone > 0 and pausado == 0:
-                    retorno = updateEstado(1)
-                    statuscode = retorno.status_code
-                    text = 'STOPPED'
-                    mode = 1
-                else:
-                    text = 'IDLE'
-                    mode = 0
-        
-        if statuscode == 200:
-            log(mode, pausado, text)
-        else:
-            log_error('Erro ao fazer o put: '+str(statuscode))
-    else:
-        log_error('Someone or paused return none ')    
 
 def log_error(e):
-    app_log.error(e)
+    APP_LOG.error(e)
+
 
 def log(mode, pausado, text):
-
     p = 'paused' if pausado == 1 else 'unpaused'
-    string = '['+ p +'] - '+ text
+    string = '[' + p + '] - ' + text
     if mode:
-        app_log.warning(string)
+        APP_LOG.warning(string)
     else:
-        app_log.info(string)
+        APP_LOG.info(string)
 
-def requests_retry_session(
-    retries=7,
-    backoff_factor=0.3,
-    status_forcelist=(500, 502, 504),
-    session=None,
-):
+
+def requests_retry_session(retries=7, backoff_factor=0.3, status_forcelist=(500, 502, 504), session=None):
     session = session or requests.Session()
     retry = Retry(
         total=retries,
@@ -85,49 +43,104 @@ def requests_retry_session(
     session.mount('https://', adapter)
     return session
 
+
 def tryCatchResponse(url):
     try:
         response = requests_retry_session().get(url)
     except Exception as x:
-        log_error('It failed :('+ str(x.__class__.__name__))
+        log_error('It failed :(' + str(x.__class__.__name__))
         return None
     else:
         return response
 
-def getEstado():
-    
-    url = 'https://plex.cvnflix.com/transcode/sessions?X-Plex-Token='
+
+def getEstado(token):
+    url = 'https://plex.tv.com/transcode/sessions?X-Plex-Token='
     response = tryCatchResponse(url+token)
-    if response.status_code==200:
+    if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'xml')
         pause = int(soup.TranscodeSession['throttled'])
         return pause
     else:
         log_error('Failed response from: '+url)
-        
 
-def getSomeoneWatching():
 
-    url = 'https://plex.cvnflix.com/status/sessions?X-Plex-Token='
+def getSomeoneWatching(token):
+    url = 'https://plex.tv.com/status/sessions?X-Plex-Token='
     response = tryCatchResponse(url+token)
-    if response.status_code==200:
+    if response.status_code == 200:
         soup = BeautifulSoup(response.text, features="xml")
         someone = int(soup.MediaContainer['size'])
         return someone
     else:
-        log_error('Failed response from: '+ url)
+        log_error('Failed response from: ' + url)
 
-def updateEstado(state):
 
-    url = 'https://plex.cvnflix.com/:/prefs?BackgroundQueueIdlePaused=' 
+def updateEstado(state, token):
+    url = 'https://plex.tv.com/:/prefs?BackgroundQueueIdlePaused='
     return requests.put(url+str(state)+'&X-Plex-Token='+token)
 
 
-def run_script(sc):
+def openTokenFile():
+    try:
+        auth = open('auth.txt', 'r').read().splitlines()
 
-    main()
-    s.enter(delay, 1, run_script, (sc,))
+        headers = {
+            'X-Plex-Client-Identifier': 'Script do Vituxo',
+            'X-Plex-Product': 'Badass Hetzner Machine',
+            'X-Plex-Version': 'v2'
+        }
+
+        r = requests.post(
+            'https://plex.tv/users/sign_in.json',
+            auth=(auth[0], auth[1]),
+            headers=headers
+        )
+
+        return r.json()['user']['authToken']
+    except BaseException:
+        log_error('Falha ao obter token')
+
+
+def run_script(sc, token):
+    pausado = getEstado(token)
+    someone = getSomeoneWatching(token)
+    if (not(pausado) is None) or (not(someone) is None):
+        statuscode = 200
+
+        if someone == 0 and pausado == 1:
+            retorno = updateEstado(0, token)
+            statuscode = retorno.status_code
+            text = 'STARTED'
+            mode = 1
+        else:
+            if someone == 0 and pausado == 0:
+                text = 'IDLE'
+                mode = 0
+            else:
+                if someone > 0 and pausado == 0:
+                    retorno = updateEstado(1, token)
+                    statuscode = retorno.status_code
+                    text = 'STOPPED'
+                    mode = 1
+                else:
+                    text = 'IDLE'
+                    mode = 0
+
+        if statuscode == 200:
+            log(mode, pausado, text)
+        else:
+            log_error('Erro ao fazer o put: '+str(statuscode))
+    else:
+        log_error('Someone or paused return none ')
+
+    S.enter(DELAY, 1, run_script, (sc,))
+
 
 if __name__ == "__main__":
-    s.enter(delay, 1, run_script, (s,))
-    s.run()
+    try:
+        token = openTokenFile()
+        S.enter(DELAY, 1, run_script, (S, token))
+        S.run()
+    except KeyboardInterrupt:
+        print('Interrupção de teclado')

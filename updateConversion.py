@@ -55,7 +55,7 @@ def tryCatchResponse(url):
 
 
 def getEstado(token):
-    url = 'http://plex.tv/transcode/sessions?X-Plex-Token='
+    url = 'http://localhost:32400/transcode/sessions?X-Plex-Token='
     response = tryCatchResponse(url+token)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'xml')
@@ -66,7 +66,7 @@ def getEstado(token):
 
 
 def getSomeoneWatching(token):
-    url = 'http://plex.tv/status/sessions?X-Plex-Token='
+    url = 'http://localhost:32400/status/sessions?X-Plex-Token='
     response = tryCatchResponse(url+token)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, features="xml")
@@ -77,7 +77,7 @@ def getSomeoneWatching(token):
 
 
 def updateEstado(state, token):
-    url = 'http://plex.tv/:/prefs?BackgroundQueueIdlePaused='
+    url = 'http://localhost:32400/:/prefs?BackgroundQueueIdlePaused='
     return requests.put(url+str(state)+'&X-Plex-Token='+token)
 
 

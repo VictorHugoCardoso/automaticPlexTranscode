@@ -55,7 +55,7 @@ def tryCatchResponse(url):
 
 
 def getEstado(token):
-    url = 'https://plex.tv.com/transcode/sessions?X-Plex-Token='
+    url = 'http://localhost:32400/transcode/sessions?X-Plex-Token='
     response = tryCatchResponse(url+token)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'xml')
@@ -66,7 +66,7 @@ def getEstado(token):
 
 
 def getSomeoneWatching(token):
-    url = 'https://plex.tv.com/status/sessions?X-Plex-Token='
+    url = 'http://localhost:32400/status/sessions?X-Plex-Token='
     response = tryCatchResponse(url+token)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, features="xml")
@@ -77,7 +77,7 @@ def getSomeoneWatching(token):
 
 
 def updateEstado(state, token):
-    url = 'https://plex.tv.com/:/prefs?BackgroundQueueIdlePaused='
+    url = 'http://localhost:32400/:/prefs?BackgroundQueueIdlePaused='
     return requests.put(url+str(state)+'&X-Plex-Token='+token)
 
 
@@ -103,44 +103,46 @@ def openTokenFile():
 
 
 def run_script(sc, token):
-    pausado = getEstado(token)
-    someone = getSomeoneWatching(token)
-    if (not(pausado) is None) or (not(someone) is None):
-        statuscode = 200
+    try:
+        pausado = getEstado(token)
+        someone = getSomeoneWatching(token)
+        if (not(pausado) is None) or (not(someone) is None):
+            statuscode = 200
 
-        if someone == 0 and pausado == 1:
-            retorno = updateEstado(0, token)
-            statuscode = retorno.status_code
-            text = 'STARTED'
-            mode = 1
-        else:
-            if someone == 0 and pausado == 0:
+            if someone == 0 and pausado == 1:
+                retorno = updateEstado(0, token)
+                statuscode = retorno.status_code
+                text = 'STARTED'
+                mode = 1
+            elif someone == 0 and pausado == 0:
                 text = 'IDLE'
                 mode = 0
+            elif someone > 0 and pausado == 0:
+                retorno = updateEstado(1, token)
+                statuscode = retorno.status_code
+                text = 'STOPPED'
+                mode = 1
             else:
-                if someone > 0 and pausado == 0:
-                    retorno = updateEstado(1, token)
-                    statuscode = retorno.status_code
-                    text = 'STOPPED'
-                    mode = 1
-                else:
-                    text = 'IDLE'
-                    mode = 0
+                text = 'IDLE'
+                mode = 0
 
-        if statuscode == 200:
-            log(mode, pausado, text)
+            if statuscode == 200:
+                log(mode, pausado, text)
+            else:
+                log_error('Erro ao fazer o put: '+str(statuscode))
         else:
-            log_error('Erro ao fazer o put: '+str(statuscode))
-    else:
-        log_error('Someone or paused return none ')
+            log_error('Someone or paused return none ')
+    except BaseException:
+        log_error('Issue when getting the status, ignoring this result and retrying')
 
-    S.enter(DELAY, 1, run_script, (sc,))
+    S.enter(DELAY, 1, run_script, (sc,token))
 
 
 if __name__ == "__main__":
     try:
         token = openTokenFile()
+        APP_LOG.info('Got Token: {}'.format(token))
         S.enter(DELAY, 1, run_script, (S, token))
         S.run()
     except KeyboardInterrupt:
-        print('Interrupção de teclado')
+        print('Interrupcao de teclado')
